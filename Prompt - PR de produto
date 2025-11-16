@@ -1,0 +1,118 @@
+Crie uma aplicação React completa de busca de leads no LinkedIn com as seguintes especificações:
+
+FUNCIONALIDADES:
+1. Integração com Google Sheets via Apps Script (ler e escrever dados)
+2. Busca real de perfis no LinkedIn usando Google Custom Search API
+3. Interface com 3 etapas: Configuração → Revisão de Dados → Resultados
+4. Download de resultados em CSV
+5. Feedback visual em tempo real (progress bars, loading states)
+
+TECNOLOGIAS OBRIGATÓRIAS:
+- React com Hooks (useState)
+- Tailwind CSS para estilização
+- lucide-react para ícones
+- Fetch API para requisições
+
+CREDENCIAIS PRÉ-CONFIGURADAS:
+- Google Sheets URL: 
+- Google API Key: 
+- Search Engine ID:
+
+FLUXO DA APLICAÇÃO:
+
+ETAPA 1 - Configuração:
+- Mostrar/ocultar configurações de API
+- Campos editáveis para: URL do Sheets, Google API Key, Search Engine ID
+- Botão "Testar Sheets" (GET ${apiUrl}?action=test)
+- Botão "Testar Google API" (testa busca de "CEO Nubank")
+- Botão principal "Carregar do Google Sheets" (GET ${apiUrl}?action=read)
+- Barra de progresso durante carregamento
+- Tratamento de erros com mensagens claras
+
+ETAPA 2 - Revisão de Dados:
+- Tabela mostrando todos os leads carregados (colunas: #, Cargo, Empresa)
+- Aviso sobre consumo de créditos da API (100 buscas/dia grátis)
+- Botão "Voltar" para etapa 1
+- Botão "Iniciar Busca Real" (verde, destaque)
+- Durante busca:
+  * Progress bar de 0-100%
+  * Contador "X/Y processados"
+  * Últimos 3 resultados em tempo real com ícones de status
+
+ETAPA 3 - Resultados:
+- Cards com estatísticas: Total, Encontrados (verde), Não Encontrados (vermelho), Erros (amarelo)
+- Tabela completa com: Status (ícone), Nome, Cargo, Empresa, Link do perfil
+- Links do LinkedIn clicáveis em nova aba
+- Botão "Nova Busca" (cinza)
+- Botão "Baixar CSV" (azul, com ícone download)
+- Mensagem de confirmação que dados foram salvos no Sheets
+
+FUNÇÕES PRINCIPAIS:
+
+testarConexao():
+- Faz GET em ${apiUrl}?action=test
+- Espera resposta: {status: 'ok', message: '...'}
+- Mostra alert de sucesso ou mensagem de erro
+
+testarGoogleAPI():
+- Faz busca teste: "CEO Nubank site:linkedin.com/in"
+- URL: https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=...
+- Valida se data.items existe e tem resultados
+
+loadFromSheets():
+- GET ${apiUrl}?action=read
+- Espera array: [{linha: 2, cargo: '...', empresa: '...'}, ...]
+- Valida se tem dados e se é array
+- Mostra progress bar animada
+- Avança para etapa 2
+
+buscarPerfil(cargo, empresa):
+- Monta query: "${cargo} ${empresa} site:linkedin.com/in"
+- Chama Google Custom Search API com num=1
+- Extrai nome do data.items[0].title (split por '-')
+- Retorna: {nome, link, status: 'found'|'notfound'|'error'}
+
+startScraping():
+- Loop por todos os leads
+- Para cada lead:
+  * Chama buscarPerfil()
+  * Atualiza array de resultados
+  * Atualiza progress (i+1)/total * 100
+  * Aguarda 1500ms entre requisições
+- Após finalizar, chama salvarResultados()
+- Avança para etapa 3
+
+salvarResultados(resultados):
+- POST ${apiUrl}
+- Body: {action: 'write', data: resultados}
+- Headers: Content-Type: application/json
+- Cada resultado: {nome, cargo, empresa, link, status}
+
+downloadResults():
+- Cria CSV com cabeçalhos
+- Adiciona BOM UTF-8 (\uFEFF) para acentos
+- Nome do arquivo: leads_YYYY-MM-DD.csv
+- Trigger download automático
+
+DESIGN E UX:
+- Gradiente azul-índigo no background (from-blue-50 to-indigo-100)
+- Cards brancos com rounded-2xl e shadow-xl
+- Botões com hover effects e disabled states
+- Ícones do lucide-react em todos os elementos importantes
+- Responsive (mobile-friendly)
+- Cores semânticas: azul (info), verde (sucesso), vermelho (erro), amarelo (aviso)
+- Animações suaves em progress bars e transições
+
+TRATAMENTO DE ERROS:
+- Try-catch em todas as funções async
+- Mensagens específicas para cada tipo de erro
+- Estado de loading durante operações
+- Validações antes de habilitar botões
+- Feedback visual claro (cores, ícones)
+
+IMPORTANTE:
+- NÃO use localStorage ou sessionStorage
+- Use apenas React state (useState)
+- Todas as credenciais já pré-preenchidas nos estados iniciais
+- Configurações visíveis por padrão (showConfig: true)
+- Código limpo, comentado e bem estruturado
