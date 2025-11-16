@@ -1,0 +1,335 @@
+import React, { useState } from 'react';
+import { Search, Upload, Download, CheckCircle, XCircle, Loader, AlertCircle, FileSpreadsheet, Link2, Key } from 'lucide-react';
+
+const App = () => {
+  const [step, setStep] = useState(1);
+  const [leads, setLeads] = useState([]);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [apiUrl, setApiUrl] = useState('');
+  const [googleApiKey, setGoogleApiKey] = useState('');
+  const [searchEngineId, setSearchEngineId] = useState('');
+  const [error, setError] = useState('');
+  const [showConfig, setShowConfig] = useState(true);
+
+  const testarConexao = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${apiUrl}?action=test`);
+      const data = await response.json();
+      if (data.status === 'ok') {
+        alert('✅ Conexão com Google Sheets OK!');
+      } else {
+        setError('Erro: ' + (data.error || 'Desconhecido'));
+      }
+    } catch (err) {
+      setError('❌ Erro: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const testarGoogleAPI = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const query = 'CEO Nubank site:linkedin.com/in';
+      const url = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.error) {
+        setError('❌ API: ' + data.error.message);
+      } else if (data.items && data.items.length > 0) {
+        alert('✅ Google API OK! ' + data.items.length + ' resultados');
+      }
+    } catch (err) {
+      setError('❌ Erro: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFromSheets = async () => {
+    setLoading(true);
+    setProgress(0);
+    setError('');
+    try {
+      const response = await fetch(`${apiUrl}?action=read`);
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setLoading(false);
+        return;
+      }
+      if (!Array.isArray(data) || data.length === 0) {
+        setError('Nenhum dado encontrado');
+        setLoading(false);
+        return;
+      }
+      for (let i = 0; i <= 100; i += 10) {
+        setProgress(i);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      setLeads(data);
+      setStep(2);
+      setProgress(0);
+    } catch (err) {
+      setError('❌ Erro: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const buscarPerfil = async (cargo, empresa) => {
+    try {
+      const query = `${cargo} ${empresa} site:linkedin.com/in`;
+      const url = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&num=1`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.items && data.items.length > 0) {
+        const item = data.items[0];
+        let nome = item.title.split('-')[0].trim();
+        return { nome: nome || 'Nome não identificado', link: item.link, status: 'found' };
+      }
+      return { nome: 'Não encontrado', link: 'N/A', status: 'notfound' };
+    } catch (error) {
+      return { nome: 'Erro', link: 'N/A', status: 'error' };
+    }
+  };
+
+  const startScraping = async () => {
+    setLoading(true);
+    setProgress(0);
+    setResults([]);
+    setError('');
+    const total = leads.length;
+    const novosResultados = [];
+    for (let i = 0; i < total; i++) {
+      const lead = leads[i];
+      const perfil = await buscarPerfil(lead.cargo, lead.empresa);
+      const resultado = {
+        nome: perfil.nome,
+        cargo: lead.cargo,
+        empresa: lead.empresa,
+        link: perfil.link,
+        status: perfil.status
+      };
+      novosResultados.push(resultado);
+      setResults([...novosResultados]);
+      setProgress(Math.round(((i + 1) / total) * 100));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    await salvarResultados(novosResultados);
+    setLoading(false);
+    setStep(3);
+  };
+
+  const salvarResultados = async (resultados) => {
+    try {
+      await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'write', data: resultados })
+      });
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
+    }
+  };
+
+  const downloadResults = () => {
+    const csv = [
+      ['Nome', 'Cargo', 'Empresa', 'Link', 'Status'],
+      ...results.map(r => [r.nome, r.cargo, r.empresa, r.link, r.status === 'found' ? 'Encontrado' : 'Não encontrado'])
+    ].map(row => row.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `leads_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
+  if (step === 1) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-800 mb-2">🔎 LinkedIn Lead Finder</h1>
+            <p className="text-gray-600">Busca real de perfis usando Google Custom Search API</p>
+          </div>
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <button onClick={() => setShowConfig(!showConfig)} className="w-full bg-blue-50 text-blue-700 py-3 rounded-lg font-semibold hover:bg-blue-100 mb-6">
+              <Key className="w-5 h-5 inline mr-2" />
+              {showConfig ? 'Ocultar' : 'Mostrar'} Configurações
+            </button>
+            {showConfig && (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">URL Google Sheets</label>
+                  <input type="text" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} className="w-full px-4 py-3 border rounded-lg" />
+                  <button onClick={testarConexao} disabled={loading} className="mt-2 text-sm bg-gray-100 px-4 py-2 rounded-lg hover:bg-gray-200">Testar Sheets</button>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">Google API Key</label>
+                  <input type="password" value={googleApiKey} onChange={(e) => setGoogleApiKey(e.target.value)} className="w-full px-4 py-3 border rounded-lg" />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">Search Engine ID</label>
+                  <input type="text" value={searchEngineId} onChange={(e) => setSearchEngineId(e.target.value)} className="w-full px-4 py-3 border rounded-lg" />
+                  <button onClick={testarGoogleAPI} disabled={loading} className="mt-2 text-sm bg-gray-100 px-4 py-2 rounded-lg hover:bg-gray-200">Testar Google API</button>
+                </div>
+              </>
+            )}
+            {error && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                <AlertCircle className="w-5 h-5 text-red-600 inline mr-2" />
+                <span className="text-sm text-red-700">{error}</span>
+              </div>
+            )}
+            <button onClick={loadFromSheets} disabled={loading || !apiUrl || !googleApiKey || !searchEngineId} className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
+              <FileSpreadsheet className="w-5 h-5 inline mr-2" />
+              Carregar do Google Sheets
+            </button>
+            {loading && (
+              <div className="mt-6">
+                <Loader className="w-6 h-6 animate-spin text-blue-600 mx-auto mb-4" />
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div className="bg-blue-600 h-3 rounded-full" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-center mt-2">{progress}%</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <h2 className="text-2xl font-semibold mb-6">📊 Dados Carregados ({leads.length} registros)</h2>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left">#</th>
+                    <th className="px-4 py-3 text-left">Cargo</th>
+                    <th className="px-4 py-3 text-left">Empresa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {leads.map((lead, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">{lead.linha || idx + 1}</td>
+                      <td className="px-4 py-3 font-medium">{lead.cargo}</td>
+                      <td className="px-4 py-3">{lead.empresa}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={() => setStep(1)} className="flex-1 bg-gray-200 py-3 rounded-lg font-semibold hover:bg-gray-300">← Voltar</button>
+              <button onClick={startScraping} disabled={loading} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50">
+                <Search className="w-5 h-5 inline mr-2" />
+                Iniciar Busca Real
+              </button>
+            </div>
+            {loading && (
+              <div className="mt-6">
+                <Loader className="w-6 h-6 animate-spin text-green-600 mx-auto mb-4" />
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div className="bg-green-600 h-3 rounded-full" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-center mt-2">{progress}% - {results.length}/{leads.length}</p>
+                {results.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {results.slice(-3).map((r, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-sm">
+                        {r.status === 'found' ? <CheckCircle className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />}
+                        <span>{r.nome} - {r.cargo}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    const encontrados = results.filter(r => r.status === 'found').length;
+    const naoEncontrados = results.length - encontrados;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <h2 className="text-2xl font-semibold mb-6">
+              <CheckCircle className="w-8 h-8 text-green-600 inline mr-2" />
+              Busca Concluída!
+            </h2>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-blue-600">{results.length}</div>
+                <div className="text-sm text-gray-600">Total</div>
+              </div>
+              <div className="bg-green-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-green-600">{encontrados}</div>
+                <div className="text-sm text-gray-600">Encontrados</div>
+              </div>
+              <div className="bg-red-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-red-600">{naoEncontrados}</div>
+                <div className="text-sm text-gray-600">Não Encontrados</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left">Status</th>
+                    <th className="px-3 py-3 text-left">Nome</th>
+                    <th className="px-3 py-3 text-left">Cargo</th>
+                    <th className="px-3 py-3 text-left">Empresa</th>
+                    <th className="px-3 py-3 text-left">Perfil</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {results.map((r, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-3 py-3">
+                        {r.status === 'found' ? <CheckCircle className="w-5 h-5 text-green-600" /> : <XCircle className="w-5 h-5 text-red-600" />}
+                      </td>
+                      <td className="px-3 py-3 font-medium">{r.nome}</td>
+                      <td className="px-3 py-3">{r.cargo}</td>
+                      <td className="px-3 py-3">{r.empresa}</td>
+                      <td className="px-3 py-3">
+                        {r.link !== 'N/A' ? <a href={r.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Ver perfil</a> : <span className="text-gray-400">N/A</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={() => { setStep(1); setLeads([]); setResults([]); }} className="flex-1 bg-gray-200 py-3 rounded-lg font-semibold hover:bg-gray-300">🔄 Nova Busca</button>
+              <button onClick={downloadResults} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">
+                <Download className="w-5 h-5 inline mr-2" />
+                Baixar CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+};
+
+export default App;
